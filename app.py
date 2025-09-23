@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, render_template_string
 from yt_dlp import YoutubeDL
 
 app = Flask(__name__)
@@ -18,13 +18,13 @@ HTML_PAGE = """
 <body>
     <h2>Mini YouTube Player</h2>
     <form method="get" action="/">
-        YouTube URL: <input type="text" name="url" style="width:400px" required>
+        Video ID: <input type="text" name="id" required>
         <input type="submit" value="Play">
     </form>
     {% if audio_url %}
         <p>Riproduzione:</p>
         <audio controls autoplay style="width: 400px;">
-            <source src="{{ audio_url }}">
+            <source src="{{ audio_url }}" type="audio/mp4">
             Il tuo browser non supporta l'audio HTML5.
         </audio>
     {% endif %}
@@ -34,31 +34,18 @@ HTML_PAGE = """
 
 @app.route("/", methods=["GET"])
 def index():
-    url = request.args.get("url")
+    video_id = request.args.get("id")
     audio_url = None
-    if url:
+    if video_id:
         try:
+            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
             with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                info = ydl.extract_info(youtube_url, download=False)
                 audio_url = info["url"]
         except Exception as e:
             audio_url = None
     return render_template_string(HTML_PAGE, audio_url=audio_url)
 
-@app.route("/yt", methods=["GET"])
-def yt():
-    url = request.args.get("url")
-    if not url:
-        return jsonify({"error": "Manca parametro ?url="}), 400
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return jsonify({"direct_url": info["url"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 if __name__ == "__main__":
     print("🚀 Mini server Flask con lettore web avviato su http://0.0.0.0:8080")
     app.run(host="0.0.0.0", port=8080, debug=True)
-
-
