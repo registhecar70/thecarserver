@@ -4,11 +4,13 @@ import json
 
 app = Flask(__name__)
 
-@app.route("/yt", methods=["GET"])
+@app.route("/", methods=["GET"])
 def yt():
-    url = request.args.get("url")
-    if not url:
-        return jsonify({"error": "Manca parametro ?url="}), 400
+    video_id = request.args.get("id")
+    if not video_id:
+        return jsonify({"error": "Manca parametro ?id="}), 400
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
 
     try:
         # Chiede a yt-dlp di restituire tutti i metadati in JSON
