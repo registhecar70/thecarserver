@@ -16,21 +16,23 @@ def api_audio():
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     try:
-        # Metadati + URL audio in un'unica chiamata
-        res = subprocess.run(
-            ["yt-dlp", "-j", "-f", "bestaudio", "-g", "--no-warnings", url],
+        # 1. Ottieni metadati JSON
+        res_meta = subprocess.run(
+            ["yt-dlp", "-j", "--no-warnings", "--skip-download", url],
             capture_output=True, text=True, check=True
         )
-
-        # yt-dlp -j restituisce JSON con metadata
-        data = json.loads(res.stdout)
+        data = json.loads(res_meta.stdout)
         title = data.get("title", "Titolo non disponibile")
         views = data.get("view_count", 0)
 
-        # URL diretto audio
-        audio_url = data.get("url") or res.stdout.strip().splitlines()[-1]
+        # 2. Ottieni link diretto audio
+        res_url = subprocess.run(
+            ["yt-dlp", "-f", "bestaudio", "-g", "--no-warnings", url],
+            capture_output=True, text=True, check=True
+        )
+        audio_url = res_url.stdout.strip().splitlines()[0]
 
-        # Expire stimato dal link
+        # 3. Expire stimato
         expire_ts = None
         qs = parse_qs(urlparse(audio_url).query)
         if "expire" in qs:
@@ -49,8 +51,8 @@ def api_audio():
             "expire_seconds": seconds_left
         })
 
-    except subprocess.CalledProcessError:
-        return jsonify({"status":"error"}), 500
+    except subprocess.CalledProcessError as e:
+        return jsonify({"status":"error", "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
