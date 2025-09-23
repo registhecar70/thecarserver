@@ -5,10 +5,11 @@ from urllib.parse import urlparse, parse_qs
 
 app = Flask(__name__)
 
-# Cache in memoria: video_id -> {url, expire, title, views}
+# Cache in memoria: video_id -> {url, expire, title, views, mime}
 CACHE = {}
 
-HTML_TEMPLATE = """<!doctype html>
+HTML_TEMPLATE = """
+<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -45,11 +46,18 @@ HTML_TEMPLATE = """<!doctype html>
   <h1>{{ title }}</h1>
   <div class="meta">
     Visualizzazioni: {{ views }} <br>
-    Link valido ancora: <span id="countdown"></span>
+    Link audio valido ancora: <span id="countdown"></span>
   </div>
 
   {% if direct_url %}
-    <p>Link diretto: <a class="link" href="{{ direct_url }}" target="_blank">{{ direct_url }}</a></p>
+    <p>Link audio diretto: <a class="link" href="{{ direct_url }}" target="_blank">{{ direct_url }}</a></p>
+  {% endif %}
+
+  {% if video_url %}
+    <p>Link video YouTube: <a class="link" href="{{ video_url }}" target="_blank">{{ video_url }}</a></p>
+  {% endif %}
+
+  {% if direct_url %}
     <audio controls preload="metadata" style="width:100%">
       {% if mime %}
         <source src="{{ direct_url }}" type="{{ mime }}">
@@ -58,9 +66,8 @@ HTML_TEMPLATE = """<!doctype html>
       {% endif %}
       Il tuo browser non supporta l'audio.
     </audio>
-  {% else %}
-    <p class="warn">Impossibile ottenere un link diretto per questo video.</p>
   {% endif %}
+
 </body>
 </html>
 """
@@ -68,21 +75,21 @@ HTML_TEMPLATE = """<!doctype html>
 ID_RE = re.compile(r'^[A-Za-z0-9_\-]{4,}$')
 
 def generate_url(video_id):
-    """Usa yt-dlp per ottenere titolo, views e URL diretto."""
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    """Usa yt-dlp per ottenere titolo, views e URL diretto"""
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
 
     # metadati
     res = subprocess.run(
-        ["yt-dlp", "-j", "--no-warnings", "--skip-download", url],
+        ["yt-dlp", "-j", "--no-warnings", "--skip-download", video_url],
         check=True, capture_output=True, text=True, timeout=30
     )
     data = json.loads(res.stdout)
     title = data.get("title", "Titolo non disponibile")
     views = data.get("view_count", 0)
 
-    # link diretto
+    # link diretto audio
     g = subprocess.run(
-        ["yt-dlp", "-f", "bestaudio", "-g", url],
+        ["yt-dlp", "-f", "bestaudio", "-g", video_url],
         check=True, capture_output=True, text=True, timeout=30
     )
     lines = [l.strip() for l in g.stdout.splitlines() if l.strip()]
@@ -92,7 +99,10 @@ def generate_url(video_id):
     if direct_url:
         qs = parse_qs(urlparse(direct_url).query)
         if "expire" in qs:
-            expire_ts = int(qs["expire"][0])
+            try:
+                expire_ts = int(qs["expire"][0])
+            except:
+                expire_ts = None
 
     mime = None
     if direct_url:
@@ -105,7 +115,8 @@ def generate_url(video_id):
         "views": views,
         "direct_url": direct_url,
         "expire": expire_ts,
-        "mime": mime
+        "mime": mime,
+        "video_url": video_url
     }
 
 @app.route("/", methods=["GET"])
@@ -114,24 +125,23 @@ def yt_player():
     if not video_id or not ID_RE.match(video_id):
         return "<p>Errore: parametro ?id= mancante o non valido</p>", 400
 
-    # Controlla cache
-    cached = CACHE.get(video_id)
     now = int(time.time())
+    cached = CACHE.get(video_id)
+
+    # usa cache se il link non è scaduto
     if cached and cached["expire"] and cached["expire"] > now + 30:
-        # link ancora valido per almeno 30s → usa cache
         data = cached
     else:
-        # genera nuovo link
         data = generate_url(video_id)
         CACHE[video_id] = data
 
     seconds_left = max(0, (data["expire"] or now) - now)
-
     return render_template_string(
         HTML_TEMPLATE,
         title=data["title"],
         views=data["views"],
         direct_url=data["direct_url"],
+        video_url=data["video_url"],
         mime=data["mime"],
         seconds_left=seconds_left
     )
