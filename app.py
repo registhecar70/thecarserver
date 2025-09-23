@@ -9,6 +9,7 @@ ydl_opts = {
     "quiet": True,
     "skip_download": True,
     "format": "bestaudio/best",
+    "noplaylist": True
 }
 
 HTML_PAGE = """
@@ -70,3 +71,4 @@ def index():
 if __name__ == "__main__":
     print("🚀 Mini server Flask con lettore e timer avviato su http://0.0.0.0:8080")
     app.run(host="0.0.0.0", port=8080, debug=True)
+
