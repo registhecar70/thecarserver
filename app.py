@@ -11,6 +11,9 @@ ydl_opts = {
     "format": "bestaudio/best",
 }
 
+# Cache in memoria: {video_id: {"url": audio_url, "expire": timestamp}}
+cache = {}
+
 HTML_PAGE = """
 <!DOCTYPE html>
 <html>
@@ -54,6 +57,23 @@ HTML_PAGE = """
 </html>
 """
 
+def get_audio_url(video_id):
+    now = int(time.time())
+    # Controlla se il video è in cache e ancora valido
+    if video_id in cache and cache[video_id]["expire"] > now:
+        return cache[video_id]["url"], cache[video_id]["expire"] - now
+
+    # Genera nuovo URL
+    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(youtube_url, download=False)
+        audio_url = info["url"]
+    
+    # Stima TTL: 5 ore (18000 secondi)
+    ttl = 18000
+    cache[video_id] = {"url": audio_url, "expire": now + ttl}
+    return audio_url, ttl
+
 @app.route("/", methods=["GET"])
 def index():
     video_id = request.args.get("id")
@@ -62,18 +82,11 @@ def index():
     ttl_formatted = "00:00:00"
     if video_id:
         try:
-            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(youtube_url, download=False)
-                audio_url = info["url"]
-                # Calcola TTL dall'URL
-                query = parse_qs(urlparse(audio_url).query)
-                expire_ts = int(query.get("expire", [0])[0])
-                ttl = max(0, expire_ts - int(time.time()))
-                h = ttl // 3600
-                m = (ttl % 3600) // 60
-                s = ttl % 60
-                ttl_formatted = f"{h:02d}:{m:02d}:{s:02d}"
+            audio_url, ttl = get_audio_url(video_id)
+            h = ttl // 3600
+            m = (ttl % 3600) // 60
+            s = ttl % 60
+            ttl_formatted = f"{h:02d}:{m:02d}:{s:02d}"
         except Exception as e:
             audio_url = None
             ttl = 0
@@ -81,5 +94,5 @@ def index():
     return render_template_string(HTML_PAGE, audio_url=audio_url, ttl=ttl, ttl_formatted=ttl_formatted)
 
 if __name__ == "__main__":
-    print("🚀 Mini server Flask con lettore e timer HH:MM:SS avviato su http://0.0.0.0:8080")
+    print("🚀 Mini server Flask con cache e timer HH:MM:SS avviato su http://0.0.0.0:8080")
     app.run(host="0.0.0.0", port=8080, debug=True)
