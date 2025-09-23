@@ -1,29 +1,17 @@
 from flask import Flask, request, jsonify
-import yt_dlp
+from yt_dlp import YoutubeDL
 
 app = Flask(__name__)
+ydl_opts = {"quiet": True, "skip_download": True, "format": "best"}
 
-@app.route("/geturl", methods=["GET"])
-def get_url():
-    video_url = request.args.get("video")
-    if not video_url:
-        return jsonify({"error": "Nessun URL fornito"}), 400
-
+@app.route("/yt", methods=["GET"])
+def yt():
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "Manca parametro ?url="}), 400
     try:
-        ydl_opts = {
-            "format": "best",
-            "quiet": True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            return jsonify({
-                "title": info.get("title"),
-                "url": info.get("url"),
-                "duration": info.get("duration"),
-                "ext": info.get("ext"),
-            })
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return jsonify({"direct_url": info["url"]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
