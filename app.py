@@ -7,7 +7,7 @@ VIDEO_CACHE = {}
 def generate_audio(video_id):
     try:
         cmd = [
-            "java", "-jar", "NewPipeExtractor-0.23.12-all.jar",
+            "java", "-jar", "extractor-v0.24.8-all.jar",
             "--youtube", f"https://www.youtube.com/watch?v={video_id}"
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -38,3 +38,4 @@ def api_audio():
 
 if __name__=="__main__":
     app.run(host="0.0.0.0", port=8080)
+
