@@ -1,68 +1,37 @@
 #!/usr/bin/env python3
 from flask import Flask, jsonify, request
-import subprocess, threading, time, re, json
-from urllib.parse import urlparse, parse_qs
+import subprocess, threading
 
 app = Flask(__name__)
 
-ID_RE = re.compile(r'^[A-Za-z0-9_\-]{4,}$')
-
-# Cache dei video: video_id -> {"status":..., "audio_url":..., "title":..., "views":..., "expire_seconds":...}
+# Cache dei video: video_id -> {"status":..., "audio_url":...}
 VIDEO_CACHE = {}
 
-def generate_audio_link_fast(video_id):
-    """Genera link audio veloce e aggiorna VIDEO_CACHE"""
+def generate_audio(video_id):
+    """Genera il link audio per un video YouTube"""
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
-        # Metadati JSON
-        res_meta = subprocess.run(
-            ["yt-dlp", "-j", "--no-warnings", "--skip-download", url],
-            capture_output=True, text=True, check=True
-        )
-        data = json.loads(res_meta.stdout)
-        title = data.get("title", "Titolo non disponibile")
-        views = data.get("view_count", 0)
-
-        # Link audio più veloce (abr <= 128 kbps)
-        res_url = subprocess.run(
+        # yt-dlp: solo link audio, massimo 128 kbps, senza scaricare
+        res = subprocess.run(
             ["yt-dlp", "-f", "bestaudio[abr<=128]", "-g", "--no-warnings", url],
             capture_output=True, text=True, check=True
         )
-        audio_url = res_url.stdout.strip().splitlines()[0]
-
-        # Expire stimato
-        expire_ts = None
-        qs = parse_qs(urlparse(audio_url).query)
-        if "expire" in qs:
-            try:
-                expire_ts = int(qs["expire"][0])
-            except:
-                expire_ts = None
-        seconds_left = max(0, expire_ts - int(time.time())) if expire_ts else None
-
-        # Aggiorna cache
-        VIDEO_CACHE[video_id] = {
-            "status": "ready",
-            "audio_url": audio_url,
-            "title": title,
-            "views": views,
-            "expire_seconds": seconds_left
-        }
-
+        audio_url = res.stdout.strip().splitlines()[0]
+        VIDEO_CACHE[video_id] = {"status": "ready", "audio_url": audio_url}
     except subprocess.CalledProcessError:
         VIDEO_CACHE[video_id] = {"status": "error"}
 
 @app.route("/api")
 def api_audio():
     video_id = (request.args.get("id") or "").strip()
-    if not video_id or not ID_RE.match(video_id):
-        return jsonify({"status":"error","error":"id mancante o non valido"}), 400
+    if not video_id:
+        return jsonify({"status": "error"}), 400
 
-    # Se non pronto o non in cache, avvia thread
+    # Se il video non è pronto o non è in cache, avvia thread per generarlo
     if video_id not in VIDEO_CACHE or VIDEO_CACHE[video_id]["status"] in ["preparing", "error"]:
         if VIDEO_CACHE.get(video_id, {}).get("status") != "preparing":
             VIDEO_CACHE[video_id] = {"status": "preparing"}
-            threading.Thread(target=generate_audio_link_fast, args=(video_id,), daemon=True).start()
+            threading.Thread(target=generate_audio, args=(video_id,), daemon=True).start()
         return jsonify({"status": "preparing"})
 
     # Video pronto
