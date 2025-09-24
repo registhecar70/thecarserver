@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 from flask import Flask, jsonify, request
-import subprocess, threading, time
+import subprocess, threading
 
 app = Flask(__name__)
 
 # Cache: video_id -> {"status":..., "audio_url":...}
 VIDEO_CACHE = {}
-# Coda preload
-PRELOAD_QUEUE = []
-LOCK = threading.Lock()
 
 def generate_audio(video_id):
     """Genera il link audio per un singolo video"""
@@ -24,39 +21,9 @@ def generate_audio(video_id):
     except subprocess.CalledProcessError:
         VIDEO_CACHE[video_id] = {"status": "error"}
 
-def generate_batch(video_ids):
-    """Genera i link audio in batch"""
-    urls = [f"https://www.youtube.com/watch?v={vid}" for vid in video_ids]
-    try:
-        res = subprocess.run(
-            ["yt-dlp", "-f", "bestaudio", "--get-url", "--no-warnings",
-             "--no-playlist", "--skip-download", "--quiet"] + urls,
-            capture_output=True, text=True, check=True
-        )
-        lines = res.stdout.strip().splitlines()
-        for vid, line in zip(video_ids, lines):
-            VIDEO_CACHE[vid] = {"status": "ready", "audio_url": line.strip()}
-    except subprocess.CalledProcessError:
-        for vid in video_ids:
-            VIDEO_CACHE[vid] = {"status": "error"}
-
-def check_queue():
-    """Controlla la coda e processa batch da 20"""
-    while True:
-        time.sleep(1)
-        with LOCK:
-            if len(PRELOAD_QUEUE) >= 20:
-                batch = PRELOAD_QUEUE[:20]
-                del PRELOAD_QUEUE[:20]
-                for vid in batch:
-                    VIDEO_CACHE[vid] = {"status": "preparing"}
-                threading.Thread(target=generate_batch, args=(batch,), daemon=True).start()
-
 @app.route("/api")
 def api_audio():
     video_id = (request.args.get("id") or "").strip()
-    urgent = request.args.get("u") == "1"
-
     if not video_id:
         return jsonify({"status": "error"}), 400
 
@@ -69,19 +36,10 @@ def api_audio():
         elif VIDEO_CACHE[video_id]["status"] == "error":
             return jsonify({"status": "error"})
 
-    # Caso urgente → genera subito
-    if urgent:
-        VIDEO_CACHE[video_id] = {"status": "preparing"}
-        threading.Thread(target=generate_audio, args=(video_id,), daemon=True).start()
-        return jsonify({"status": "preparing"})
-
-    # Caso preload → accoda se non già in coda/cache
-    with LOCK:
-        if video_id not in PRELOAD_QUEUE:
-            PRELOAD_QUEUE.append(video_id)
-            VIDEO_CACHE[video_id] = {"status": "preparing"}
+    # Caso nuovo: genera subito in background
+    VIDEO_CACHE[video_id] = {"status": "preparing"}
+    threading.Thread(target=generate_audio, args=(video_id,), daemon=True).start()
     return jsonify({"status": "preparing"})
 
 if __name__ == "__main__":
-    threading.Thread(target=check_queue, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)
